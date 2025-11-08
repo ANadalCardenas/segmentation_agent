@@ -1,36 +1,21 @@
 
-# Dockerfile
-FROM nvidia/cuda:12.1.0-cudnn9-runtime-ubuntu24.04
+FROM ubuntu:24.04
 
-# System packages
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3 \
-        python3-pip \
-        python3-dev \
-        git \
-        ffmpeg \
-        libsm6 \
-        libxext6 \
-        libasound2 \
-        libasound2-dev \
-        portaudio19-dev \
-    && rm -rf /var/lib/apt/lists/*
+# Install Python, pip and git
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    python3 python3-pip ca-certificates git \
+    libgl1 libglib2.0-0 pyqt5-dev-tools
 
+# Set the working directory
+ARG WORKSPACE=/workspace/segmentation_agent
+
+# Create workspace directory
+RUN mkdir -p $WORKSPACE
 WORKDIR $WORKSPACE
 
-# Copy requirements first (for better caching)
-COPY requirements.txt .
-
-# Install PyTorch with CUDA first (YOLOv5 recommendation)
-# Adjust CUDA version if needed.
-RUN pip3 install --no-cache-dir \
-        torch torchvision --index-url https://download.pytorch.org/whl/cu121
-
-# Install project requirements (whisper, opencv, etc.)
-RUN pip3 install --no-cache-dir -r requirements.txt
-
-# Clone YOLOv5 and install its requirements (excluding torch, already installed)
-RUN git clone https://github.com/ultralytics/yolov5.git \
-    && pip3 install --no-cache-dir -r yolov5/requirements.txt
+# Install requirements
+COPY requirements.txt /tmp/requirements.txt
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+RUN python3 -m pip install --no-cache-dir -r /tmp/requirements.txt
 
 ENV PYTHONUNBUFFERED=1
