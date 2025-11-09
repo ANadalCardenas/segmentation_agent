@@ -12,7 +12,7 @@ from speech_to_text import ConversationManager
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--video", required=True, help="/workspace/segmentation_agent/media/video.mp4")
+    parser.add_argument("--video", default="/workspace/segmentation_agent/media/video.mp4")
     parser.add_argument("--model", default="yolov5s")
     parser.add_argument("--mic", action="store_true", help="Enable microphone-based commands")
     args = parser.parse_args()
