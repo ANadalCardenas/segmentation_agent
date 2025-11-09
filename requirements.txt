@@ -16,6 +16,8 @@ tqdm>=4.66.3
 ultralytics>=8.2.64
 transformers>=4.0.0
 sounddevice>=0.4.6
+soundfile>=0.12.1
+openai-whisper>=20231117
 
 # Plotting --------------------------------------------------------------------
 pandas>=1.1.4
