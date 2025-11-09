@@ -1,15 +1,14 @@
-
 FROM ubuntu:24.04
 
-# Install Python, pip and git
+# Install Python, PortAudio, Qt, etc.
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     python3 python3-pip ca-certificates git \
-    libgl1 libglib2.0-0 pyqt5-dev-tools
+    libgl1 libglib2.0-0 pyqt5-dev-tools \
+    portaudio19-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory
 ARG WORKSPACE=/workspace/segmentation_agent
-
-# Create workspace directory
 RUN mkdir -p $WORKSPACE
 WORKDIR $WORKSPACE
 
