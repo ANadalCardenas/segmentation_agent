@@ -26,7 +26,6 @@ def main():
     conv_manager = ConversationManager(parser=cmd_parser)
     if args.mic:
         conv_manager.start()
-
     # 3) Video streams
     video_cap = cv2.VideoCapture(args.video)
     if not video_cap.isOpened():
@@ -85,7 +84,7 @@ def main():
         combined = viewer.combine_frames(webcam_frame, processed)
         viewer.show(combined)
 
-        key = cv2.waitKey(1) & 0xFF
+        key = cv2.waitKey(400) & 0xFF
         if key == ord("q"):
             break
 
