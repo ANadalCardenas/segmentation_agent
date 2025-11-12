@@ -11,6 +11,7 @@ services:
     user: "${UID}:${GID}"
     devices:
       - "/dev/snd:/dev/snd"
+      - "/dev/video0:/dev/video0"
     group_add:
       - "audio"
     volumes:
