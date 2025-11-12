@@ -8,7 +8,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     && rm -rf /var/lib/apt/lists/*RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     python3 python3-pip ca-certificates git \
     libgl1 libglib2.0-0 pyqt5-dev-tools \
-    libasound2 libasound2-plugins alsa-utils \
+    libasound2t64 libasound2-plugins alsa-utils \
     libpulse0 pulseaudio-utils \
     libportaudio2 portaudio19-dev \
     libsndfile1 \
