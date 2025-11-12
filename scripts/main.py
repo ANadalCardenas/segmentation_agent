@@ -1,7 +1,6 @@
 # app/main.py
 import argparse
 from typing import Set
-
 import cv2
 
 from detector import ObjectDetector
@@ -12,7 +11,8 @@ from speech_to_text import ConversationManager
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--video", default="/workspace/segmentation_agent/media/video.mp4")
+    parser.add_argument("--video", default="/workspace/segmentation_agent/media/video.mp4",
+                        help="Path to video file for the right view")
     parser.add_argument("--model", default="yolov5s")
     parser.add_argument("--mic", action="store_true", help="Enable microphone-based commands")
     args = parser.parse_args()
@@ -26,15 +26,17 @@ def main():
     conv_manager = ConversationManager(parser=cmd_parser)
     if args.mic:
         conv_manager.start()
-    # 3) Video streams
-    video_cap = cv2.VideoCapture(args.video)
-    if not video_cap.isOpened():
-        raise RuntimeError(f"Cannot open video {args.video}")
 
+    # 3) Video sources
     webcam_cap = cv2.VideoCapture(0)
     if not webcam_cap.isOpened():
         print("[WARN] Cannot open webcam; using black frame instead.")
         webcam_cap = None
+
+    video_cap = cv2.VideoCapture(args.video)
+    if not video_cap.isOpened():
+        print(f"[WARN] Cannot open video {args.video}; using black frame instead.")
+        video_cap = None
 
     viewer = Viewer()
 
@@ -45,27 +47,42 @@ def main():
     print("[INFO] Press 'q' to quit.")
 
     while True:
-        ret, frame = video_cap.read()
-        if not ret:
-            print("[INFO] Video ended.")
-            break
+        # Read right video (file)
+        if video_cap is not None:
+            ret_v, frame_video = video_cap.read()
+            if not ret_v:
+                print("[INFO] Video ended.")
+                break
+        else:
+            frame_video = None
 
-        # Read webcam frame
+        # Read left video (webcam)
         if webcam_cap is not None:
-            ret_w, webcam_frame = webcam_cap.read()
+            ret_w, frame_webcam = webcam_cap.read()
             if not ret_w:
                 print("[WARN] Webcam frame error; disabling webcam.")
                 webcam_cap.release()
                 webcam_cap = None
-                # Use black frame to keep layout consistent
-                webcam_frame = None
+                frame_webcam = None
         else:
-            webcam_frame = None
+            frame_webcam = None
 
-        if webcam_frame is None:
-            webcam_frame = frame.copy() * 0  # black placeholder
+        # Handle missing sources (black placeholders)
+        if frame_webcam is None and frame_video is None:
+            print("[ERROR] No video sources available.")
+            break
 
-        # 1.4.3.1 – manage new conversation
+        if frame_webcam is None and frame_video is not None:
+            frame_webcam = frame_video.copy() * 0
+        elif frame_video is None and frame_webcam is not None:
+            frame_video = frame_webcam.copy() * 0
+
+        # Ensure same height for concatenation
+        h = min(frame_webcam.shape[0], frame_video.shape[0])
+        frame_webcam = cv2.resize(frame_webcam, (int(frame_webcam.shape[1] * h / frame_webcam.shape[0]), h))
+        frame_video = cv2.resize(frame_video, (int(frame_video.shape[1] * h / frame_video.shape[0]), h))
+
+        # Apply detection only on right (video file)
         if args.mic:
             detect_list, undetect_list = conv_manager.get_current_filters()
             if detect_list or undetect_list:
@@ -73,22 +90,22 @@ def main():
                 active_detect.difference_update(undetect_list)
                 ignored_classes.update(undetect_list)
 
-        # 1.4.2 – if no conversation (no active classes) -> show original video
         if not active_detect:
-            processed = frame
+            processed = frame_video
         else:
-            # 1.4.3.2 – show video with latest detections
-            detections = detector.detect(frame, allowed_classes=active_detect)
-            processed = viewer.draw_detections(frame, detections)
+            detections = detector.detect(frame_video, allowed_classes=active_detect)
+            processed = viewer.draw_detections(frame_video, detections)
 
-        combined = viewer.combine_frames(webcam_frame, processed)
+        # Combine frames: webcam (left) + processed video (right)
+        combined = cv2.hconcat([frame_webcam, processed])
         viewer.show(combined)
 
-        key = cv2.waitKey(400) & 0xFF
+        key = cv2.waitKey(30) & 0xFF
         if key == ord("q"):
             break
 
-    video_cap.release()
+    if video_cap is not None:
+        video_cap.release()
     if webcam_cap is not None:
         webcam_cap.release()
     cv2.destroyAllWindows()
