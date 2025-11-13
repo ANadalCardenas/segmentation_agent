@@ -1,18 +1,18 @@
 FROM ubuntu:24.04
 
 # Install Python, PortAudio, Qt, etc.
+FROM ubuntu:24.04
+
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    python3 python3-pip ca-certificates git \
-    libgl1 libglib2.0-0 pyqt5-dev-tools \
-    portaudio19-dev libsndfile1 \
-    && rm -rf /var/lib/apt/lists/*RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     python3 python3-pip ca-certificates git \
     libgl1 libglib2.0-0 pyqt5-dev-tools \
     libasound2t64 libasound2-plugins alsa-utils \
     libpulse0 pulseaudio-utils \
     libportaudio2 portaudio19-dev \
     libsndfile1 \
+    ffmpeg \
  && rm -rf /var/lib/apt/lists/*
+
 
 
 # Set the working directory
