@@ -24,16 +24,17 @@ class SpeechToText:
 
 
 class ConversationManager:
-    """
-    Runs a background thread that:
-    - records short audio chunks
-    - transcribes them
-    - passes transcripts into a parser to get detect/undetect lists
-    """
-    def __init__(self, parser, sample_rate: int = 16000, chunk_seconds: int = 5):
+    def __init__(self, parser, sample_rate: int | None = None, chunk_seconds: int = 5):
         self.parser = parser
-        self.sample_rate = sample_rate
         self.chunk_seconds = chunk_seconds
+
+        # Auto-detect valid input sample rate if not provided
+        if sample_rate is None:
+            dev_info = sd.query_devices(None, 'input')  # default input device
+            self.sample_rate = int(dev_info['default_samplerate'])
+            print(f"[ConversationManager] Using input sample rate: {self.sample_rate}")
+        else:
+            self.sample_rate = sample_rate
 
         self._stt = SpeechToText()
         self._thread = None
@@ -43,6 +44,7 @@ class ConversationManager:
         self._current_detect: Set[str] = set()
         self._current_undetect: Set[str] = set()
         self._lock = threading.Lock()
+
 
     def start(self):
         if self._thread is not None:
@@ -60,17 +62,34 @@ class ConversationManager:
             audio = self._record_chunk()
             if audio is None:
                 continue
-
+            
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
                 sf.write(tmp.name, audio, self.sample_rate)
-                text = self._stt.transcribe_wav(tmp.name)
-
+    
+                # Transcribe
+                try:
+                    text = self._stt.transcribe_wav(tmp.name)
+                except Exception as e:
+                    print(f"[SpeechToText] Transcription error: {e}")
+                    continue
+                
             if text:
-                detect, undetect = self.parser.parse(text)
+                # 🔥 PRINT WHAT YOU SAY IN REAL TIME
+                print(f"[YOU SAID]: {text}")
+    
+                # Parse commands (with error protection)
+                try:
+                    detect, undetect = self.parser.parse(text)
+                except Exception as e:
+                    print(f"[ConversationManager] Command parsing error: {e}")
+                    continue
+                
+                # Update filters
                 with self._lock:
                     self._current_detect.update(detect)
                     self._current_detect.difference_update(undetect)
                     self._current_undetect.update(undetect)
+
 
     def _record_chunk(self) -> Optional[np.ndarray]:
         try:
@@ -79,8 +98,9 @@ class ConversationManager:
             sd.wait()
             return np.squeeze(audio, axis=-1)
         except Exception as e:
-            print(f"[ConversationManager] Audio error: {e}")
+            print(f"[ConversationManager] Audio error at {self.sample_rate} Hz: {e}")
             return None
+
 
     def get_current_filters(self) -> Tuple[Set[str], Set[str]]:
         """
