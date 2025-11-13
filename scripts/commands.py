@@ -13,7 +13,13 @@ class CommandParser:
 
     def __init__(self, yolo_class_names: Iterable[str]):
         self.yolo_classes = set(name.lower() for name in yolo_class_names)
-        # Simple synonym mapping (add more as needed) TO DO
+        # Simple synonym mapping (add more as needed)
+        self.synonyms: Dict[str, str] = {}
+        self.synonyms = {
+        "people": "person",
+        "cars": "car",
+        "bottles": "bottle",
+        }
     
 
     def _normalize_token(self, token: str) -> str:
