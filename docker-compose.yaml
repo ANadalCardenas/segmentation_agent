@@ -7,8 +7,6 @@ services:
     container_name: segmentation_agent
     image: segmentation_agent:latest
     shm_size: '8gb'
-    # If you prefer using a prebuilt image, replace build: . with image: your/image
-    user: "${UID}:${GID}"
     devices:
       - "/dev/snd:/dev/snd"
       - "/dev/video0:/dev/video0"
@@ -19,7 +17,6 @@ services:
       - /home/${USER}/workspace/segmentation_agent/media:/workspace/segmentation_agent/media
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - ${XAUTHORITY:-$HOME/.Xauthority}:/tmp/.Xauthority:ro
-      - /run/user/${UID}/pulse:/run/user/${UID}/pulse
       - ${HOME}/.config/pulse:/home/app/.config/pulse:ro
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
@@ -27,8 +24,6 @@ services:
       - DISPLAY=${DISPLAY}
       - QT_X11_NO_MITSHM=1
       - XAUTHORITY=/tmp/.Xauthority
-      - XDG_RUNTIME_DIR=/run/user/${UID}
-      - PULSE_SERVER=unix:/run/user/${UID}/pulse/native
     gpus: all
     working_dir: /workspace/segmentation_agent
     stdin_open: true
