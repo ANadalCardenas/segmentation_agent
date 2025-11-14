@@ -36,11 +36,10 @@ class Viewer:
         for det in detections:
             x1, y1, x2, y2 = map(int, det["bbox"])
             class_name = det["class_name"]
-            conf = det["conf"]
             color = self._get_color_for_class(class_name)
 
             cv2.rectangle(output, (x1, y1), (x2, y2), color, 2)
-            label = f"{class_name} {conf:.2f}"
+            label = f"{class_name}"
             cv2.putText(
                 output, label, (x1, max(0, y1 - 5)),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2
