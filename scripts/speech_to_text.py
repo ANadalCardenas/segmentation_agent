@@ -2,6 +2,7 @@
 import threading
 import queue
 import tempfile
+import time
 from typing import List, Set, Tuple, Optional
 
 import numpy as np
@@ -24,7 +25,7 @@ class SpeechToText:
 
 
 class ConversationManager:
-    def __init__(self, parser, sample_rate: int | None = None, chunk_seconds: int = 5):
+    def __init__(self, parser, sample_rate: int | None = None, chunk_seconds: float = 2.0):
         self.parser = parser
         self.chunk_seconds = chunk_seconds
 
@@ -40,11 +41,15 @@ class ConversationManager:
         self._thread = None
         self._stop_event = threading.Event()
 
+        # Recording state
+        self._recording = False
+
         # Shared state
         self._current_detect: Set[str] = set()
         self._current_undetect: Set[str] = set()
         self._lock = threading.Lock()
 
+    # --------- Public control API ---------
 
     def start(self):
         if self._thread is not None:
@@ -57,39 +62,37 @@ class ConversationManager:
         if self._thread is not None:
             self._thread.join(timeout=2.0)
 
+    def set_recording(self, recording: bool):
+        """
+        Called from UI (button) to start/stop mic capture.
+        """
+        self._recording = recording
+        if recording:
+            print("[ConversationManager] Recording started.")
+        else:
+            print("[ConversationManager] Recording stopped.")
+
+    # --------- Internal loop ---------
+
     def _run_loop(self):
         while not self._stop_event.is_set():
+            # Idle until recording is requested
+            if not self._recording:
+                time.sleep(0.05)
+                continue
+
+            # Record one chunk while recording is True
             audio = self._record_chunk()
             if audio is None:
                 continue
-            
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
-                sf.write(tmp.name, audio, self.sample_rate)
-    
-                # Transcribe
-                try:
-                    text = self._stt.transcribe_wav(tmp.name)
-                except Exception as e:
-                    print(f"[SpeechToText] Transcription error: {e}")
-                    continue
-                
-            if text:
-                # 🔥 PRINT WHAT YOU SAY IN REAL TIME
-                print(f"[YOU SAID]: {text}")
-    
-                # Parse commands (with error protection)
-                try:
-                    detect, undetect = self.parser.parse(text)
-                except Exception as e:
-                    print(f"[ConversationManager] Command parsing error: {e}")
-                    continue
-                
-                # Update filters
-                with self._lock:
-                    self._current_detect.update(detect)
-                    self._current_detect.difference_update(undetect)
-                    self._current_undetect.update(undetect)
 
+            """
+            # If user already released the button, skip STT
+            if not self._recording:
+                continue
+            """
+
+            self._process_audio(audio)
 
     def _record_chunk(self) -> Optional[np.ndarray]:
         try:
@@ -101,6 +104,34 @@ class ConversationManager:
             print(f"[ConversationManager] Audio error at {self.sample_rate} Hz: {e}")
             return None
 
+    def _process_audio(self, audio: np.ndarray):
+        # Write to temp WAV and call Whisper
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
+            sf.write(tmp.name, audio, self.sample_rate)
+
+            try:
+                text = self._stt.transcribe_wav(tmp.name)
+            except Exception as e:
+                print(f"[SpeechToText] Transcription error: {e}")
+                return
+
+        if not text:
+            return
+
+        print(f"[YOU SAID]: {text}")
+
+        # Parse commands
+        try:
+            detect, undetect = self.parser.parse(text)
+        except Exception as e:
+            print(f"[ConversationManager] Command parsing error: {e}")
+            return
+
+        # Update filters
+        with self._lock:
+            self._current_detect.update(detect)
+            self._current_detect.difference_update(undetect)
+            self._current_undetect.update(undetect)
 
     def get_current_filters(self) -> Tuple[Set[str], Set[str]]:
         """

@@ -44,7 +44,12 @@ def main():
         print(f"[WARN] Cannot open video {args.video}; using black frame instead.")
         video_cap = None
 
-    viewer = Viewer()  # make sure Viewer uses a fixed window_name
+    viewer = Viewer()
+
+    # If mic is enabled, connect button to mic control
+    if conv_manager is not None:
+        viewer.set_button_callback(lambda pressed: conv_manager.set_recording(pressed))
+
 
     # State
     active_detect: Set[str] = set()
@@ -111,8 +116,11 @@ def main():
         # Combine frames: webcam (left) + processed video (right)
         combined = cv2.hconcat([frame_webcam, processed])
 
+        # Add bottom UI (push-to-talk button)
+        frame_with_ui = viewer.draw_ui(combined)
+
         # Show frame in a single persistent window
-        viewer.show(combined)
+        viewer.show(frame_with_ui)
 
         # Process GUI events (keyboard + window "X")
         key = cv2.waitKey(400) & 0xFF
