@@ -11,10 +11,15 @@ from speech_to_text import ConversationManager
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--video", default="/workspace/segmentation_agent/media/video.mp4",
-                        help="Path to video file for the right view")
+    parser.add_argument(
+        "--video",
+        default="/workspace/segmentation_agent/media/video.mp4",
+        help="Path to video file for the right view",
+    )
     parser.add_argument("--model", default="yolov5s")
-    parser.add_argument("--mic", action="store_true", help="Enable microphone-based commands")
+    parser.add_argument(
+        "--mic", action="store_true", help="Enable microphone-based commands"
+    )
     args = parser.parse_args()
 
     # 1) Init detector & parser
@@ -22,9 +27,10 @@ def main():
     class_names = detector.get_class_names()
     cmd_parser = CommandParser(class_names)
 
-    # 2) Conversation manager (background thread)
-    conv_manager = ConversationManager(parser=cmd_parser)
+    # 2) Conversation manager (background thread) – only if mic is enabled
+    conv_manager = None
     if args.mic:
+        conv_manager = ConversationManager(parser=cmd_parser)
         conv_manager.start()
 
     # 3) Video sources
@@ -38,13 +44,13 @@ def main():
         print(f"[WARN] Cannot open video {args.video}; using black frame instead.")
         video_cap = None
 
-    viewer = Viewer()
+    viewer = Viewer()  # make sure Viewer uses a fixed window_name
 
     # State
     active_detect: Set[str] = set()
     ignored_classes: Set[str] = set()
 
-    print("[INFO] Press 'q' to quit.")
+    print("[INFO] Press 'q' to quit or click the window 'X'.")
 
     while True:
         # Read right video (file)
@@ -79,11 +85,17 @@ def main():
 
         # Ensure same height for concatenation
         h = min(frame_webcam.shape[0], frame_video.shape[0])
-        frame_webcam = cv2.resize(frame_webcam, (int(frame_webcam.shape[1] * h / frame_webcam.shape[0]), h))
-        frame_video = cv2.resize(frame_video, (int(frame_video.shape[1] * h / frame_video.shape[0]), h))
+        frame_webcam = cv2.resize(
+            frame_webcam,
+            (int(frame_webcam.shape[1] * h / frame_webcam.shape[0]), h),
+        )
+        frame_video = cv2.resize(
+            frame_video,
+            (int(frame_video.shape[1] * h / frame_video.shape[0]), h),
+        )
 
         # Apply detection only on right (video file)
-        if args.mic:
+        if conv_manager is not None:
             detect_list, undetect_list = conv_manager.get_current_filters()
             if detect_list or undetect_list:
                 active_detect.update(detect_list)
@@ -98,19 +110,36 @@ def main():
 
         # Combine frames: webcam (left) + processed video (right)
         combined = cv2.hconcat([frame_webcam, processed])
+
+        # Show frame in a single persistent window
         viewer.show(combined)
 
-        key = cv2.waitKey(30) & 0xFF
+        # Process GUI events (keyboard + window "X")
+        key = cv2.waitKey(400) & 0xFF
         if key == ord("q"):
+            print("[INFO] 'q' pressed. Exiting.")
             break
 
+        # Check if user closed the window with "X"
+        try:
+            prop = cv2.getWindowProperty(viewer.window_name, cv2.WND_PROP_VISIBLE)
+        except cv2.error:
+            # Window already destroyed
+            print("[INFO] Window destroyed. Exiting.")
+            break
+
+        if prop < 1:
+            print("[INFO] Window closed by user. Exiting.")
+            break
+
+    # Cleanup
     if video_cap is not None:
         video_cap.release()
     if webcam_cap is not None:
         webcam_cap.release()
     cv2.destroyAllWindows()
 
-    if args.mic:
+    if conv_manager is not None:
         conv_manager.stop()
 
 
