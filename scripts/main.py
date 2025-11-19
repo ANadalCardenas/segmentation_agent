@@ -99,13 +99,16 @@ def main():
             (int(frame_video.shape[1] * h / frame_video.shape[0]), h),
         )
 
-        # Apply detection only on right (video file)
+       # Apply detection only on right (video file) and update filters from speech
+        unsupported_requested = set()
         if conv_manager is not None:
-            detect_list, undetect_list = conv_manager.get_current_filters()
+            detect_list, undetect_list, unsupported_list = conv_manager.get_current_filters()
             if detect_list or undetect_list:
                 active_detect.update(detect_list)
                 active_detect.difference_update(undetect_list)
                 ignored_classes.update(undetect_list)
+            unsupported_requested = unsupported_list
+
 
         if not active_detect:
             processed = frame_video
@@ -116,8 +119,14 @@ def main():
         # Combine frames: webcam (left) + processed video (right)
         combined = cv2.hconcat([frame_webcam, processed])
 
+        combined_with_panel = viewer.add_side_panel(
+            combined,
+            active_classes=list(active_detect),
+            unsupported_classes=list(unsupported_requested),
+        )
+
         # Add bottom UI (push-to-talk button)
-        frame_with_ui = viewer.draw_ui(combined)
+        frame_with_ui = viewer.draw_ui(combined_with_panel)
 
         # Show frame in a single persistent window
         viewer.show(frame_with_ui)

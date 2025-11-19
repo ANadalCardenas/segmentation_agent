@@ -1,9 +1,8 @@
 # app/speech_to_text.py
 import threading
-import queue
 import tempfile
 import time
-from typing import List, Set, Tuple, Optional
+from typing import Set, Tuple, Optional
 
 import numpy as np
 import sounddevice as sd
@@ -15,8 +14,8 @@ class SpeechToText:
     """
     Thin wrapper around Whisper ASR.
     """
-    def __init__(self, model_name: str = "small"):
-        # For GPU, Whisper will automatically use CUDA if available.
+    def __init__(self, model_name: str = "tiny"):
+        # Use a lighter model to avoid freezing
         self.model = whisper.load_model(model_name)
 
     def transcribe_wav(self, filename: str) -> str:
@@ -41,12 +40,13 @@ class ConversationManager:
         self._thread = None
         self._stop_event = threading.Event()
 
-        # Recording state
+        # Recording state (controlled by UI button)
         self._recording = False
 
         # Shared state
         self._current_detect: Set[str] = set()
         self._current_undetect: Set[str] = set()
+        self._current_unsupported: Set[str] = set()
         self._lock = threading.Lock()
 
     # --------- Public control API ---------
@@ -86,11 +86,9 @@ class ConversationManager:
             if audio is None:
                 continue
 
-            """
             # If user already released the button, skip STT
             if not self._recording:
                 continue
-            """
 
             self._process_audio(audio)
 
@@ -120,9 +118,9 @@ class ConversationManager:
 
         print(f"[YOU SAID]: {text}")
 
-        # Parse commands
+        # Parse commands → now returns 3 sets
         try:
-            detect, undetect = self.parser.parse(text)
+            detect, undetect, unsupported = self.parser.parse(text)
         except Exception as e:
             print(f"[ConversationManager] Command parsing error: {e}")
             return
@@ -132,11 +130,16 @@ class ConversationManager:
             self._current_detect.update(detect)
             self._current_detect.difference_update(undetect)
             self._current_undetect.update(undetect)
+            self._current_unsupported.update(unsupported)
 
-    def get_current_filters(self) -> Tuple[Set[str], Set[str]]:
+    def get_current_filters(self) -> Tuple[Set[str], Set[str], Set[str]]:
         """
-        Returns (objects_to_detect, objects_to_undetect).
+        Returns (objects_to_detect, objects_to_undetect, unsupported_objects).
         Thread-safe snapshot.
         """
         with self._lock:
-            return set(self._current_detect), set(self._current_undetect)
+            return (
+                set(self._current_detect),
+                set(self._current_undetect),
+                set(self._current_unsupported),
+            )

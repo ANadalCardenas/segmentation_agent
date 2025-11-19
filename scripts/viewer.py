@@ -11,7 +11,7 @@ class Viewer:
     Handles visualization:
     - draw detections on video frame
     - combine webcam and video frames side by side
-    - draw UI (push-to-talk button)
+    - draw UI (push-to-talk button + side panel)
     """
 
     def __init__(self, window_name: str = "Object Video Detector"):
@@ -23,16 +23,16 @@ class Viewer:
         self._button_callback: Optional[Callable[[bool], None]] = None
         self._button_rect: Optional[Tuple[int, int, int, int]] = None  # (x1, y1, x2, y2)
 
-        # Create window and register mouse callback
+        # Create window + mouse callback
         cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(self.window_name, 800, 450)
+        cv2.resizeWindow(self.window_name, 1600, 900)
         cv2.setMouseCallback(self.window_name, self._on_mouse)
 
     # --------- Public API for main.py ---------
 
     def set_button_callback(self, callback: Callable[[bool], None]):
         """
-        Called with True when button is pressed, False when released.
+        Called with True when button is toggled ON, False when toggled OFF.
         """
         self._button_callback = callback
 
@@ -88,7 +88,73 @@ class Viewer:
         combined = np.hstack([resized_webcam, video_frame])
         return combined
 
-    # --------- UI drawing (button) ---------
+    # --------- Side panel drawing ---------
+
+    def add_side_panel(
+        self,
+        frame: np.ndarray,
+        active_classes: List[str],
+        unsupported_classes: List[str],
+    ) -> np.ndarray:
+        """
+        Adds a thin panel on the right showing:
+          - Active detected classes
+          - Unsupported requested objects
+        """
+        h, w, _ = frame.shape
+        panel_w = max(220, w // 6)
+
+        panel = np.zeros((h, panel_w, 3), dtype=frame.dtype)
+        panel[:] = (40, 40, 40)  # dark grey background
+
+        # Text settings
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        title_scale = 0.6
+        item_scale = 0.5
+        title_thickness = 2
+        item_thickness = 1
+
+        x_margin = 10
+        y = 25
+
+        # Helper to draw a block (title + list)
+        def draw_block(title: str, items: List[str], y_start: int, color_title, color_item) -> int:
+            y_cur = y_start
+            cv2.putText(panel, title, (x_margin, y_cur), font, title_scale, color_title, title_thickness)
+            y_cur += 20
+            if not items:
+                cv2.putText(panel, "-", (x_margin, y_cur), font, item_scale, color_item, item_thickness)
+                y_cur += 18
+            else:
+                for item in sorted(items):
+                    cv2.putText(panel, f"- {item}", (x_margin, y_cur), font, item_scale, color_item, item_thickness)
+                    y_cur += 18
+            y_cur += 10
+            return y_cur
+
+        # Detecting block
+        y = draw_block(
+            "Detecting:",
+            list(active_classes),
+            y,
+            color_title=(0, 255, 0),        # green
+            color_item=(200, 255, 200),
+        )
+
+        # Unsupported block
+        y = draw_block(
+            "Unsupported:",
+            list(unsupported_classes),
+            y,
+            color_title=(0, 0, 255),        # red
+            color_item=(200, 200, 255),
+        )
+
+        # Combine original frame + panel
+        combined = np.hstack([frame, panel])
+        return combined
+
+    # --------- Bottom button UI ---------
 
     def draw_ui(self, frame: np.ndarray) -> np.ndarray:
         """
@@ -98,7 +164,6 @@ class Viewer:
         h, w = frame.shape[:2]
         ui_height = 60
 
-        # New canvas: original frame + UI bar at bottom
         canvas = np.zeros((h + ui_height, w, 3), dtype=frame.dtype)
         canvas[:h, :, :] = frame
 
@@ -112,9 +177,9 @@ class Viewer:
 
         # Button color: green (idle) or red (recording)
         if self._button_pressed:
-            color = (0, 0, 255)  # BGR: red
+            color = (0, 0, 255)  # red
         else:
-            color = (0, 255, 0)  # BGR: green
+            color = (0, 255, 0)  # green
 
         cv2.rectangle(canvas, (x1, y1), (x2, y2), color, thickness=-1)
 
@@ -133,7 +198,7 @@ class Viewer:
     def show(self, frame: np.ndarray):
         cv2.imshow(self.window_name, frame)
 
-    # --------- Mouse handling ---------
+    # --------- Mouse handling (toggle button) ---------
 
     def _on_mouse(self, event, x, y, flags, param):
         if self._button_rect is None:
@@ -142,14 +207,8 @@ class Viewer:
         x1, y1, x2, y2 = self._button_rect
         inside = (x1 <= x <= x2) and (y1 <= y <= y2)
 
+        # Toggle on click inside the button
         if event == cv2.EVENT_LBUTTONDOWN and inside:
-            if not self._button_pressed:
-                self._button_pressed = True
-                if self._button_callback is not None:
-                    self._button_callback(True)
-
-        elif event == cv2.EVENT_LBUTTONUP:
-            if self._button_pressed:
-                self._button_pressed = False
-                if self._button_callback is not None:
-                    self._button_callback(False)
+            self._button_pressed = not self._button_pressed
+            if self._button_callback is not None:
+                self._button_callback(self._button_pressed)
