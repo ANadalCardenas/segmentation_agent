@@ -1,145 +1,135 @@
-# app/speech_to_text.py
-import threading
-import tempfile
-import time
-from typing import Set, Tuple, Optional
+# speech_to_text.py
+
+"""from typing import Optional
 
 import numpy as np
 import sounddevice as sd
-import soundfile as sf
 import whisper
 
 
 class SpeechToText:
-    """
-    Thin wrapper around Whisper ASR.
-    """
-    def __init__(self, model_name: str = "tiny"):
-        # Use a lighter model to avoid freezing
+    
+    def __init__(self, model_name: str = "base", sample_rate: int = 16000):
+        
+        self.model_name = model_name
+        self.sample_rate = sample_rate
         self.model = whisper.load_model(model_name)
 
-    def transcribe_wav(self, filename: str) -> str:
-        result = self.model.transcribe(filename, language="en")
+    # ---------- MICROPHONE RECORDING ----------
+
+    def _record_from_mic(self, duration_sec: float) -> np.ndarray:
+        
+        num_samples = int(duration_sec * self.sample_rate)
+        audio = sd.rec(
+            num_samples,
+            samplerate=self.sample_rate,
+            channels=1,
+            dtype="float32",
+        )
+        sd.wait()
+        print("[SpeechToText] Recording finished.")
+        # Flatten to 1D array
+        return audio.flatten()
+
+    # ---------- TRANSCRIPTION METHODS ----------
+
+    def transcribe_from_mic(self, duration_sec: float, language: str = "en") -> str:
+        
+        audio_buffer = self._record_from_mic(duration_sec)
+        return self.transcribe_buffer(audio_buffer, language=language)
+
+    def transcribe_buffer(self, audio_buffer, language: str = "en") -> str:
+        
+        result = self.model.transcribe(audio_buffer, language=language)
         return result["text"].strip()
+"""
+
+# speech_to_text.py
+
+from typing import Optional
+
+import numpy as np
+import sounddevice as sd
+import whisper
+from sounddevice import PortAudioError
 
 
-class ConversationManager:
-    def __init__(self, parser, sample_rate: int | None = None, chunk_seconds: float = 2.0):
-        self.parser = parser
-        self.chunk_seconds = chunk_seconds
+class SpeechToText:
+    """
+    Wrapper around OpenAI Whisper that can record audio from the microphone
+    and transcribe it to text.
+    """
 
-        # Auto-detect valid input sample rate if not provided
+    def __init__(self, model_name: str = "large", sample_rate: Optional[int] = None):
+        """
+        Args:
+            model_name: tiny, base, small, medium, large
+        """
+        self.model_name = model_name
+        # --- choose device sample rate ---
         if sample_rate is None:
-            dev_info = sd.query_devices(None, 'input')  # default input device
-            self.sample_rate = int(dev_info['default_samplerate'])
-            print(f"[ConversationManager] Using input sample rate: {self.sample_rate}")
-        else:
-            self.sample_rate = sample_rate
-
-        self._stt = SpeechToText()
-        self._thread = None
-        self._stop_event = threading.Event()
-
-        # Recording state (controlled by UI button)
-        self._recording = False
-
-        # Shared state
-        self._current_detect: Set[str] = set()
-        self._current_undetect: Set[str] = set()
-        self._current_unsupported: Set[str] = set()
-        self._lock = threading.Lock()
-
-    # --------- Public control API ---------
-
-    def start(self):
-        if self._thread is not None:
-            return
-        self._thread = threading.Thread(target=self._run_loop, daemon=True)
-        self._thread.start()
-
-    def stop(self):
-        self._stop_event.set()
-        if self._thread is not None:
-            self._thread.join(timeout=2.0)
-
-    def set_recording(self, recording: bool):
-        """
-        Called from UI (button) to start/stop mic capture.
-        """
-        self._recording = recording
-        if recording:
-            print("[ConversationManager] Recording started.")
-        else:
-            print("[ConversationManager] Recording stopped.")
-
-    # --------- Internal loop ---------
-
-    def _run_loop(self):
-        while not self._stop_event.is_set():
-            # Idle until recording is requested
-            if not self._recording:
-                time.sleep(0.05)
-                continue
-
-            # Record one chunk while recording is True
-            audio = self._record_chunk()
-            if audio is None:
-                continue
-
-            # If user already released the button, skip STT
-            if not self._recording:
-                continue
-
-            self._process_audio(audio)
-
-    def _record_chunk(self) -> Optional[np.ndarray]:
-        try:
-            frames = int(self.chunk_seconds * self.sample_rate)
-            audio = sd.rec(frames, samplerate=self.sample_rate, channels=1, dtype="float32")
-            sd.wait()
-            return np.squeeze(audio, axis=-1)
-        except Exception as e:
-            print(f"[ConversationManager] Audio error at {self.sample_rate} Hz: {e}")
-            return None
-
-    def _process_audio(self, audio: np.ndarray):
-        # Write to temp WAV and call Whisper
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as tmp:
-            sf.write(tmp.name, audio, self.sample_rate)
-
             try:
-                text = self._stt.transcribe_wav(tmp.name)
-            except Exception as e:
-                print(f"[SpeechToText] Transcription error: {e}")
-                return
+                dev_info = sd.query_devices(sd.default.device[0], "input")
+            except Exception:
+                dev_info = sd.query_devices(kind="input")
+            self.device_sample_rate = int(dev_info["default_samplerate"])
+        else:
+            try:
+                sd.check_input_settings(samplerate=sample_rate)
+                self.device_sample_rate = sample_rate
+            except PortAudioError:
+                print(
+                    f"[SpeechToText] Sample rate {sample_rate} not supported, "
+                    "falling back to default input device sample rate."
+                )
+                try:
+                    dev_info = sd.query_devices(sd.default.device[0], "input")
+                except Exception:
+                    dev_info = sd.query_devices(kind="input")
+                self.device_sample_rate = int(dev_info["default_samplerate"])
 
-        if not text:
-            return
+        print(f"[SpeechToText] Device sample rate: {self.device_sample_rate} Hz")
 
-        print(f"[YOU SAID]: {text}")
 
-        # Parse commands → now returns 3 sets
-        try:
-            detect, undetect, unsupported = self.parser.parse(text)
-        except Exception as e:
-            print(f"[ConversationManager] Command parsing error: {e}")
-            return
+        # 2) Load Whisper model
+        self.model = whisper.load_model(model_name)
 
-        # Update filters
-        with self._lock:
-            self._current_detect.update(detect)
-            self._current_detect.difference_update(undetect)
-            self._current_undetect.update(undetect)
-            self._current_unsupported.update(unsupported)
+    # ---------- MICROPHONE RECORDING ----------
 
-    def get_current_filters(self) -> Tuple[Set[str], Set[str], Set[str]]:
+    def _record_from_mic(self, duration_sec: float) -> np.ndarray:
         """
-        Returns (objects_to_detect, objects_to_undetect, unsupported_objects).
-        Thread-safe snapshot.
+        Record audio from the default microphone.
+
+        Returns 1D float32 NumPy array at device_sample_rate.
         """
-        with self._lock:
-            return (
-                set(self._current_detect),
-                set(self._current_undetect),
-                set(self._current_unsupported),
-            )
+        num_samples = int(duration_sec * self.device_sample_rate)
+        print(f"[SpeechToText] Recording {duration_sec:.1f}s of audio...")
+        audio = sd.rec(
+            num_samples,
+            samplerate=self.device_sample_rate,
+            channels=1,
+            dtype="float32",
+        )
+        sd.wait()
+        print("[SpeechToText] Recording finished.")
+        return audio.flatten()
+
+
+    # ---------- TRANSCRIPTION METHODS ----------
+
+    def transcribe_from_mic(
+        self,
+        duration_sec: float,
+        language: Optional[str] = "en",
+    ) -> str:
+        audio_buffer = self._record_from_mic(duration_sec)
+        return self.transcribe_buffer(audio_buffer, language=language)
+
+    def transcribe_buffer(
+        self,
+        audio_buffer,
+        language: Optional[str] = "en",
+    ) -> str:
+        
+        result = self.model.transcribe(audio_buffer, language=language)
+        return result["text"].strip()
